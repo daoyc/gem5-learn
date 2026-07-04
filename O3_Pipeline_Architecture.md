@@ -58,40 +58,26 @@ graph LR
 ## 图 2：Squash 信号反向传播路径
 
 ```mermaid
-%%{init: {'theme': 'default', 'themeVariables': {'fontSize': '12px'}}}%%
 graph LR
-    subgraph SRC["触发源"]
-        BR("分支误预测<br/>Execute 阶段检测")
-        VIOL("LSQ 冲突<br/>Load/Store 顺序违规")
-        EXC("异常/中断<br/>Commit 检测")
-    end
+    BR("🔴 分支误预测")
+    VIOL("🔴 LSQ 冲突")
+    EXC("🔴 异常/中断")
 
-    IEW_I("IEW 封装信号<br/>IEWStruct.squash[]<br/>+ mispredPC[]")
-    CMT("Commit 广播<br/>CommitComm.squash=true<br/>+ 正确 PC")
-    IEW_O("IEW 响应<br/>清空 IQ / LSQ")
-    REN("Rename 响应<br/>恢复 RAT 检查点")
-    DEC("Decode 响应<br/>清空解码管线")
-    FETCH_F("Fetch 重定向<br/>新 PC 重新取指")
+    IEW_I("IEW 封装<br/>squash[] + mispredPC[]")
+    CMT("Commit 广播<br/>squash=true + 新 PC")
+    IEW_O("IEW 清空 IQ/LSQ")
+    REN("Rename 恢复 RAT")
+    DEC("Decode 清空管线")
+    FETCH_F("Fetch 新 PC 取指")
 
-    BR --> IEW_I
-    VIOL --> IEW_I
-    EXC --> CMT
-    IEW_I -->|"iewQueue (前向)"| CMT
-    CMT -->|"TimeBuffer (反向)"| IEW_O
-    CMT -->|"TimeBuffer (反向)"| REN
-    CMT -->|"TimeBuffer (反向)"| DEC
-    CMT -->|"TimeBuffer (反向)"| FETCH_F
-
-    style BR fill:#ffe0e0,stroke:#cc0000
-    style VIOL fill:#ffe0e0,stroke:#cc0000
-    style EXC fill:#ffe0e0,stroke:#cc0000
-    style CMT fill:#ffd6d6,stroke:#cc0000,stroke-width:2px
-    style FETCH_F fill:#ffe6cc,stroke:#d35400,stroke-width:2px
-
-    linkStyle 5 stroke:#cc0000,stroke-width:3px
-    linkStyle 6 stroke:#cc0000,stroke-width:3px
-    linkStyle 7 stroke:#cc0000,stroke-width:3px
-    linkStyle 8 stroke:#cc0000,stroke-width:3px
+    BR -->|"Execute 检测"| IEW_I
+    VIOL -->|"地址冲突"| IEW_I
+    EXC -->|"直接触发"| CMT
+    IEW_I -->|"iewQueue 前向"| CMT
+    CMT -->|"TimeBuffer 反向"| IEW_O
+    CMT -->|"TimeBuffer 反向"| REN
+    CMT -->|"TimeBuffer 反向"| DEC
+    CMT -->|"TimeBuffer 反向"| FETCH_F
 ```
 
 ---
