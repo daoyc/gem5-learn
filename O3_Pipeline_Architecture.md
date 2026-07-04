@@ -4,86 +4,94 @@
 
 ---
 
-## 总体架构
+## 图 1：O3 流水线前向数据流
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {'fontSize': '11px', 'primaryColor': '#f8f8f8'}}}%%
-graph TB
-    subgraph Forward_Path["▶ 指令前向流动（5 组 TimeBuffer）"]
-        direction LR
-        F[("🟦 Fetch<br/>取指")]
-        D[("🟦 Decode<br/>译码")]
-        R[("🟨 Rename<br/>重命名")]
-        I[("🟧 IEW<br/>发射/执行/写回")]
-        C[("🟥 Commit<br/>提交")]
-    end
+%%{init: {'theme': 'default', 'themeVariables': {'fontSize': '12px'}}}%%
+graph LR
+    BAC["BAC + BTB<br/>分支预测/目标缓存"]
+    IC["I-Cache<br/>指令缓存"]
 
-    subgraph IEW_Internal["IEW 内部"]
-        IQ["IQ<br/>指令队列"]
-        SCORE["Scoreboard<br/>记分板"]
-        EXEC["Execute Units<br/>执行单元 ALU/FPU/Mul"]
-        LSQ["LSQ<br/>访存队列 Load+Store"]
-        IQ -->|"issueToExecQueue"| EXEC
-        EXEC --- LSQ
-        SCORE -.->|"操作数就绪唤醒"| IQ
-    end
+    F["⬛ Fetch 取指<br/>根据 PC/预测 取指令"]
+    D["⬛ Decode 译码<br/>解析指令 读寄存器"]
+    R["⬛ Rename 重命名<br/>逻辑→物理寄存器 消假依赖"]
+    IEW["⬛ IEW<br/>发射/执行/写回"]
+    C["⬛ Commit 提交<br/>ROB 按序提交 精确异常"]
 
-    subgraph Global["全局支撑结构（CPU 类持有）"]
-        ROB["ROB<br/>重排序缓冲"]
-        MAP["RAT<br/>架构→物理寄存器映射"]
-        FL["Free List<br/>空闲物理寄存器"]
-        PRF["PhysRegFile<br/>物理寄存器文件"]
-        BAC["BAC + FTQ<br/>分支地址计算+取指目标队列"]
-    end
+    ROB["ROB 重排序缓冲"]
+    IQ["IQ 指令队列<br/>等待操作数就绪"]
+    EXEC["FU 功能单元<br/>ALU / FPU / Mul"]
+    LSQ["LSQ 访存队列<br/>Load+Store 转发/冲突"]
+    SCORE["Scoreboard 记分板<br/>操作数就绪跟踪"]
+    MAP["RAT 重命名表"]
+    FL["Free List"]
+    PRF["PhysRegFile"]
 
-    subgraph Backward["⏪ TimeBuffer（共享反向通道 TimeStruct）"]
-        TB_C["CommitComm<br/>由 Commit 写入<br/>Fetch/Decode/Rename/IEW 读取"]
-        TB_I["IewComm<br/>由 IEW 写入<br/>Rename 读取"]
-        TB_D["DecodeComm<br/>由 Decode 写入<br/>Fetch 读取"]
-        TB_F["FetchComm<br/>由 Fetch 写入<br/>BAC 读取"]
-    end
+    BAC -->|"预测 PC"| F
+    F -->|"取指令"| IC
+    IC -->|"指令字节"| F
+    F -->|"fetchQueue<br/>FetchStruct"| D
+    D -->|"decodeQueue<br/>DecodeStruct"| R
+    R -->|"renameQueue<br/>RenameStruct"| IEW
+    IEW -->|"iewQueue<br/>IEWStruct"| C
 
-    %% ── 前向连接 ──
-    F -->|"① fetchQueue<br/>FetchStruct<br/>insts[MaxWidth]"| D
-    D -->|"② decodeQueue<br/>DecodeStruct<br/>insts[MaxWidth]"| R
-    R -->|"③ renameQueue<br/>RenameStruct<br/>insts[MaxWidth]"| I
-    I -->|"④ iewQueue<br/>IEWStruct<br/>insts[] + squash[] + mispredPC[]"| C
-
-    %% ── 反向连接 ──
-    C -.->|"⑤ commitInfo<br/>squash / robSquashing / pc / freeROBEntries"| TB_C
-    TB_C -.->|"squash + 新 PC"| F
-    TB_C -.->|"squash"| D
-    TB_C -.->|"squash + freeROBEntries"| R
-    TB_C -.->|"squash + nonSpecSeqNum"| I
-
-    I -.->|"⑥ iewInfo<br/>freeIQEntries / freeLQEntries / freeSQEntries"| TB_I
-    TB_I -.->|"IQ/LQ/SQ 剩余空间"| R
-
-    D -.->|"⑦ decodeInfo<br/>squash / mispredictInst / branchTaken"| TB_D
-    TB_D -.->|"分支重定向"| F
-
-    F -.->|"⑧ fetchInfo<br/>block / squash / nextPC"| TB_F
-    TB_F -.->|"控制 BAC"| BAC
-
-    %% ── 全局结构与阶段关联 ──
-    C --- ROB
     R --- MAP
     R --- FL
     R --- PRF
-    I --- IQ
-    I --- SCORE
-    I --- LSQ
-    I --- EXEC
-    F --- BAC
-    EXEC --- PRF
 
-    %% ── 红色标注 Squash 关键边 ──
-    linkStyle 4,5,6,7,8 stroke:#dc143c,stroke-width:3px
-    linkStyle 13 stroke:#dc143c,stroke-width:2px
+    IEW --- IQ
+    IEW --- LSQ
+    IEW --- SCORE
+    IEW --- EXEC
+    C --- ROB
 
-    style C fill:#ffe0e0,stroke:#dc143c,stroke-width:2px
-    style F fill:#ffe0e0,stroke:#dc143c,stroke-width:2px
-    style TB_C fill:#ffd0d0,stroke:#dc143c,stroke-width:1px
+    IQ -->|"issueToExecQueue"| EXEC
+    SCORE -.->|"就绪唤醒"| IQ
+
+    style C fill:#ffd6d6,stroke:#cc0000,stroke-width:2px
+    style F fill:#ffe6cc,stroke:#d35400,stroke-width:2px
+    style R fill:#e8f5e9,stroke:#27ae60,stroke-width:2px
+```
+
+---
+
+## 图 2：Squash 信号反向传播路径
+
+```mermaid
+%%{init: {'theme': 'default', 'themeVariables': {'fontSize': '12px'}}}%%
+graph LR
+    subgraph SRC["触发源"]
+        BR("分支误预测<br/>Execute 阶段检测")
+        VIOL("LSQ 冲突<br/>Load/Store 顺序违规")
+        EXC("异常/中断<br/>Commit 检测")
+    end
+
+    IEW_I("IEW 封装信号<br/>IEWStruct.squash[]<br/>+ mispredPC[]")
+    CMT("Commit 广播<br/>CommitComm.squash=true<br/>+ 正确 PC")
+    IEW_O("IEW 响应<br/>清空 IQ / LSQ")
+    REN("Rename 响应<br/>恢复 RAT 检查点")
+    DEC("Decode 响应<br/>清空解码管线")
+    FETCH_F("Fetch 重定向<br/>新 PC 重新取指")
+
+    BR --> IEW_I
+    VIOL --> IEW_I
+    EXC --> CMT
+    IEW_I -->|"iewQueue (前向)"| CMT
+    CMT -->|"TimeBuffer (反向)"| IEW_O
+    CMT -->|"TimeBuffer (反向)"| REN
+    CMT -->|"TimeBuffer (反向)"| DEC
+    CMT -->|"TimeBuffer (反向)"| FETCH_F
+
+    style BR fill:#ffe0e0,stroke:#cc0000
+    style VIOL fill:#ffe0e0,stroke:#cc0000
+    style EXC fill:#ffe0e0,stroke:#cc0000
+    style CMT fill:#ffd6d6,stroke:#cc0000,stroke-width:2px
+    style FETCH_F fill:#ffe6cc,stroke:#d35400,stroke-width:2px
+
+    linkStyle 5 stroke:#cc0000,stroke-width:3px
+    linkStyle 6 stroke:#cc0000,stroke-width:3px
+    linkStyle 7 stroke:#cc0000,stroke-width:3px
+    linkStyle 8 stroke:#cc0000,stroke-width:3px
 ```
 
 ---
